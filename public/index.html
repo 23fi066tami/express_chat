@@ -50,106 +50,129 @@
 
     <script>
       function main() {
-        const host = location.origin.replace(/^http/, 'ws')
-        const ws = new WebSocket(host + '/ws')
-        const myId = self.crypto.randomUUID().substr(0, 8)
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = protocol + '//' + location.host;
+  const ws = new WebSocket(host + '/ws');
 
-        const canvas = document.getElementById('canvas')
-        const ctx = canvas.getContext('2d')
+  const myId = self.crypto.randomUUID().substr(0, 8);
 
-        let drawing = false
+  // IDから色を生成（シンプルなハッシュ関数）
+  function idToColor(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+    return "#" + "00000".substring(0, 6 - c.length) + c;
+  }
 
-        canvas.addEventListener('mousedown', (e) => {
-          sendDrawingEvent(e.offsetX, e.offsetY, 'mousedown')
-        })
-        function mousedown() {
-          drawing = true
-          ctx.beginPath()
-        }
+  const myColor = idToColor(myId);
 
-        canvas.addEventListener('mousemove', (e) => {
-          if (drawing) {
-            sendDrawingEvent(e.offsetX, e.offsetY, 'mousemove')
-          }
-        })
-        function mousemove(x, y) {
-          if (drawing) {
-            draw(x, y, true)
-          }
-        }
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
 
-        canvas.addEventListener('mouseup', (e) => {
-          sendDrawingEvent(e.offsetX, e.offsetY, 'mouseup')
-        })
-        function mouseup() {
-          drawing = false
-          ctx.beginPath()
-        }
+  let drawing = false;
 
-        canvas.addEventListener('mouseout', (e) => {
-          sendDrawingEvent(e.offsetX, e.offsetY, 'mouseout')
-        })
-        function mouseout() {
-          drawing = false
-        }
+  // 現在描いているIDの色を保持する変数
+  let currentColor = myColor;
 
-        function draw(x, y, dragging) {
-          if (dragging) {
-            ctx.lineTo(x, y)
-            ctx.stroke()
-          } else {
-            ctx.moveTo(x, y)
-          }
-        }
+  canvas.addEventListener('mousedown', (e) => {
+    sendDrawingEvent(e.offsetX, e.offsetY, 'mousedown', myId);
+  });
+  function mousedown(id) {
+    drawing = true;
+    ctx.beginPath();
+    currentColor = idToColor(id);
+    ctx.strokeStyle = currentColor;
+  }
 
-        function sendDrawingEvent(x, y, control) {
-          const message = JSON.stringify({ x, y, control, type: 'paint' })
-          ws.send(message)
-        }
+  canvas.addEventListener('mousemove', (e) => {
+    if (drawing) {
+      sendDrawingEvent(e.offsetX, e.offsetY, 'mousemove', myId);
+    }
+  });
+  function mousemove(x, y) {
+    if (drawing) {
+      draw(x, y, true);
+    }
+  }
 
-        ws.onmessage = (event) => {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'paint') {
-            const { x, y, control } = msg
-            console.log({ control })
-            if (control === 'mousedown') {
-              mousedown()
-            } else if (control === 'mouseup') {
-              mouseup()
-            } else if (control === 'mousemove') {
-              mousemove(x, y)
-            } else if (control === 'mouseout') {
-              mouseout()
-            }
-          }
-          if (msg.type === 'chat') {
-            const { id, text } = msg
-            const messageList = document.querySelector('.messages')
-            const li = document.createElement('li')
-            if (id === myId) {
-              li.textContent = `(${id})自分:` + text
-            } else {
-              li.textContent = id + ': ' + text
-            }
-            messageList.appendChild(li)
-          }
-        }
+  canvas.addEventListener('mouseup', (e) => {
+    sendDrawingEvent(e.offsetX, e.offsetY, 'mouseup', myId);
+  });
+  function mouseup() {
+    drawing = false;
+    ctx.beginPath();
+  }
 
-        const form = document.querySelector('.form')
+  canvas.addEventListener('mouseout', (e) => {
+    sendDrawingEvent(e.offsetX, e.offsetY, 'mouseout', myId);
+  });
+  function mouseout() {
+    drawing = false;
+  }
 
-        form.onsubmit = function (e) {
-          e.preventDefault()
-          const input = document.querySelector('.input')
-          const text = input.value
-          ws.send(JSON.stringify({ id: myId, text, type: 'chat' }))
-          input.value = ''
-          input.focus()
-        }
+  function draw(x, y, dragging) {
+    if (dragging) {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    } else {
+      ctx.moveTo(x, y);
+    }
+  }
 
-        ws.onerror = function (error) {
-          console.error('WebSocket Error: ', error)
-        }
+  function sendDrawingEvent(x, y, control, id) {
+    const message = JSON.stringify({ x, y, control, type: 'paint', id });
+    ws.send(message);
+  }
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'paint') {
+      const { x, y, control, id } = msg;
+      if (control === 'mousedown') {
+        mousedown(id);
+      } else if (control === 'mouseup') {
+        mouseup();
+      } else if (control === 'mousemove') {
+        mousemove(x, y);
+      } else if (control === 'mouseout') {
+        mouseout();
       }
+    }
+    if (msg.type === 'chat') {
+      const { id, text } = msg;
+      const messageList = document.querySelector('.messages');
+      const li = document.createElement('li');
+      li.style.color = idToColor(id);
+      if (id === myId) {
+        li.textContent = `(${id})自分: ` + text;
+        li.style.fontWeight = 'bold';
+      } else {
+        li.textContent = id + ': ' + text;
+      }
+      messageList.appendChild(li);
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  };
+
+  const form = document.querySelector('.form');
+
+  form.onsubmit = function (e) {
+    e.preventDefault();
+    const input = document.querySelector('.input');
+    const text = input.value;
+    if (text.trim() === '') return; // 空メッセージ送信防止
+    ws.send(JSON.stringify({ id: myId, text, type: 'chat' }));
+    input.value = '';
+    input.focus();
+  };
+
+  ws.onerror = function (error) {
+    console.error('WebSocket Error: ', error);
+  };
+}
+
 
       main()
     </script>
